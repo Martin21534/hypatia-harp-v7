@@ -28,6 +28,7 @@
 #include "ns3/ipv4-header.h"
 #include "ns3/udp-header.h"
 #include "ns3/tcp-header.h"
+#include "ns3/nstime.h"
 
 namespace ns3 {
 
@@ -59,7 +60,24 @@ public:
     std::string StringReprOfForwardingState();
 
 private:
+    bool AppendHarpV5Mark(ns3::Ptr<const ns3::Packet> pkt,
+                          const ns3::Ipv4Header& ipHeader,
+                          uint8_t signal,
+                          uint16_t epoch) const;
+
     std::vector<std::tuple<int32_t, int32_t, int32_t>> m_next_hop_list;
+
+    // V4 只在實際 TCP 封包使用 first hop 時觀察變化；-2 表示尚未建立基準。
+    std::vector<int32_t> m_last_tcp_next_hop_list;
+
+    // V5 將實際換手事件序列化在封包內，不直接呼叫 TCP。每個目的地與
+    // 方向各自維護 epoch，避免不同 flow/path 的事件互相覆蓋。
+    bool m_enableHarpV5PacketMarking{false};
+    Time m_harpV5MarkDuration{MilliSeconds(250)};
+    std::vector<uint16_t> m_harpV5DataEpoch;
+    std::vector<uint16_t> m_harpV5AckEpoch;
+    std::vector<int64_t> m_harpV5DataMarkUntilNs;
+    std::vector<int64_t> m_harpV5AckMarkUntilNs;
 
 };
 

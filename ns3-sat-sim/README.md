@@ -18,11 +18,11 @@ granularity. It builds upon two ns-3 modules:
   
   https://github.com/snkas/basic-sim
   
-  It is added as git submodule (commit: 3b32597) at: simulator/contrib/basic-sim
+  It is added as git submodule (commit: f67ce509) at: simulator/contrib/basic-sim
   
   The git submodule refers to:
   
-  https://github.com/snkas/basic-sim/tree/3b32597c183e1039be7f0bede17d36d354696776
+  https://github.com/snkas/basic-sim/tree/f67ce5092cda7d294922ff3270e8e1ea23d26622
 
 
 ## Getting started
@@ -40,3 +40,17 @@ granularity. It builds upon two ns-3 modules:
    ```
    bash build.sh --optimized
    ```
+
+`build.sh` extracts ns-3.45 and automatically applies the CUBIC extension
+hook, the HARP TCP core integration, and the per-flow TCP selection patch for
+the pinned `basic-sim` submodule. Patch application is idempotent, so a normal
+rebuild does not require manual `git apply` commands.
+
+To verify the HARP/ML targets after a debug build, run from `simulator/`:
+
+```
+./ns3 build main_satnet ml-cubic-inference-check test-runner
+./ns3 run "ml-cubic-inference-check --v2=1"
+./ns3 run "test-runner --suite=tcp-harp-cubic-v6 --verbose"
+./ns3 run "test-runner --suite=tcp-harp-cubic-v7 --verbose"
+```

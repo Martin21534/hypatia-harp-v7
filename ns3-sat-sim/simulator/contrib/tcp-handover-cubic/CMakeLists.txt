@@ -1,0 +1,36 @@
+build_lib(
+    LIBNAME tcp-handover-cubic
+    SOURCE_FILES
+      model/tcp-handover-cubic.cc
+      model/tcp-harp-recovery.cc
+      model/tcp-harp-cubic-v2.cc
+      model/tcp-harp-cubic-v21.cc
+      model/tcp-harp-cubic-v3.cc
+      model/tcp-harp-cubic-v4.cc
+      model/tcp-harp-cubic-v5.cc
+      model/tcp-harp-cubic-v6.cc
+      model/tcp-hybrid-cubic.cc
+      model/tcp-harp-cubic-v7.cc
+    HEADER_FILES
+      model/tcp-handover-cubic.h
+      model/tcp-harp-recovery.h
+      model/tcp-harp-cubic-v2.h
+      model/tcp-harp-cubic-v21.h
+      model/tcp-harp-cubic-v3.h
+      model/tcp-harp-cubic-v4.h
+      model/tcp-harp-cubic-v5.h
+      model/tcp-harp-cubic-v6.h
+      model/tcp-hybrid-cubic.h
+      model/tcp-harp-cubic-v7.h
+    LIBRARIES_TO_LINK
+      ${libinternet}
+    TEST_SOURCES
+      test/tcp-handover-cubic-test-suite.cc
+      test/tcp-harp-cubic-v2-test-suite.cc
+      test/tcp-harp-cubic-v21-test-suite.cc
+      test/tcp-harp-cubic-v3-test-suite.cc
+      test/tcp-harp-cubic-v4-test-suite.cc
+      test/tcp-harp-cubic-v5-test-suite.cc
+      test/tcp-harp-cubic-v6-test-suite.cc
+      test/tcp-harp-cubic-v7-test-suite.cc
+)

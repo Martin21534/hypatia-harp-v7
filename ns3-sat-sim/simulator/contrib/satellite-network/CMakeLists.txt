@@ -8,6 +8,7 @@ build_lib(
       model/point-to-point-laser-remote-channel.cc
       model/gsl-net-device.cc
       model/gsl-channel.cc
+      model/gsl-scheduled-error-model.cc
       model/ground-station.cc
       helper/gsl-helper.cc
       helper/point-to-point-laser-helper.cc
@@ -16,12 +17,14 @@ build_lib(
       model/arbiter-single-forward.cc
       helper/arbiter-single-forward-helper.cc
       helper/gsl-if-bandwidth-helper.cc
+      helper/gsl-random-loss-helper.cc
     HEADER_FILES
       model/point-to-point-laser-net-device.h
       model/point-to-point-laser-channel.h
       model/point-to-point-laser-remote-channel.h
       model/gsl-net-device.h
       model/gsl-channel.h
+      model/gsl-scheduled-error-model.h
       model/ground-station.h
       helper/gsl-helper.h
       helper/point-to-point-laser-helper.h
@@ -30,6 +33,9 @@ build_lib(
       model/arbiter-single-forward.h
       helper/arbiter-single-forward-helper.h
       helper/gsl-if-bandwidth-helper.h
+      helper/gsl-random-loss-helper.h
     TEST_SOURCES
       test/satellite-network-test-suite.cc
+    LIBRARIES_TO_LINK
+      ${libtcp-handover-cubic}
 )

@@ -21,7 +21,7 @@ It consists of four main components:
   by `satgenpy` to perform packet-level simulations over LEO satellite networks.
   It makes use of the [`satellite`](https://gitlab.inesctec.pt/pmms/ns3-satellite)
   ns-3 module by Pedro Silva to calculate satellite locations over time.
-  It uses the [`basic-sim`](https://github.com/snkas/basic-sim/tree/3b32597c183e1039be7f0bede17d36d354696776) 
+  It uses the [`basic-sim`](https://github.com/snkas/basic-sim/tree/f67ce5092cda7d294922ff3270e8e1ea23d26622)
   ns-3 module to make e.g., running end-to-end TCP flows easier, which makes use of several Python
   modules (e.g., numpy, statsmodels, exputil) as well as several other packages (e.g., OpenMPI, lcov, gnuplot).
   More information can be found in `ns3-sat-sim/README.md`.
@@ -79,6 +79,41 @@ BibTeX citation:
 
 5. The reproduction of the paper is essentially the tutorial for Hypatia.
    Please navigate to `paper/README.md`.
+
+## HARP-Cubic V6/V7 research extension
+
+This repository also contains an experimental handover-aware CUBIC extension
+for the Taipei-to-Buenos Aires Starlink-550 scenario:
+
+- [HARP-Cubic implementation and version history](ns3-sat-sim/simulator/contrib/tcp-handover-cubic/README.md)
+- [ML-CUBIC provenance and HARP-Cubic V7 integration](ns3-sat-sim/simulator/contrib/tcp-handover-cubic/ML-CUBIC.md)
+- [CUBIC/V6/V7 200 Mbit/s comparison scenario](integration_tests/test_taipei_buenos_aires_v7_200Mbps/README.md)
+
+For a fresh checkout, include submodules and use the repository build scripts:
+
+```bash
+git clone --recurse-submodules https://github.com/c1ydehhx/hypatia.git
+cd hypatia
+bash hypatia_install_dependencies.sh
+bash hypatia_build.sh
+```
+
+The ns-3 build applies the repository's HARP core, CUBIC hook, and
+`basic-sim` per-flow TCP patches automatically. Do not manually edit or copy
+files into the extracted ns-3 tree.
+
+Before starting the long experiment, run its static validation:
+
+```bash
+cd integration_tests/test_taipei_buenos_aires_v7_200Mbps
+source ../../env/bin/activate
+python3 step_0_validate.py
+```
+
+The full scenario requires GNU `screen`, uses up to 14 state-generation
+workers and runs up to two ns-3 processes concurrently. Its generated
+`temp/` directory is intentionally excluded from Git. See the scenario README
+for the full command, outputs, run time, and current research limitations.
 
 ### Visualizations
 Most of the visualizations in the paper are available [here](https://leosatsim.github.io/).

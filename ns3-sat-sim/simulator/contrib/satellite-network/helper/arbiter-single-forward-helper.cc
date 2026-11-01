@@ -18,6 +18,10 @@
  */
 
 #include "arbiter-single-forward-helper.h"
+#include "ns3/tcp-handover-cubic.h"
+#include "ns3/tcp-harp-cubic-v2.h"
+#include "ns3/tcp-harp-cubic-v21.h"
+#include "ns3/tcp-harp-cubic-v3.h"
 
 namespace ns3 {
 
@@ -197,6 +201,35 @@ void ArbiterSingleForwardHelper::UpdateForwardingState(int64_t t) {
         }
       }
 
+      if ((current_node_id == 1584 && target_node_id == 1585) ||
+            (current_node_id == 1585 && target_node_id == 1584))
+        {
+            std::cout << "HANDOVER_EVENT"
+                    << " time=" << Simulator::Now().GetSeconds()
+                    << " current=" << current_node_id
+                    << " target=" << target_node_id
+                    << " new_next_hop=" << next_hop_node_id
+                    << std::endl;
+            if (Simulator::Now().GetNanoSeconds() > 0)
+            {
+                TcpHandoverCubic::NotifyHandover();
+                // HARP-Cubic 2.0 會區分資料路徑與 ACK 回程，作為動態 beta 的權重。
+                TcpHarpCubicV2::NotifyHandover(
+                    current_node_id == 1584
+                        ? TcpHarpCubicV2::HandoverDirection::DATA_PATH
+                        : TcpHarpCubicV2::HandoverDirection::ACK_PATH);
+                // HARP-Cubic 2.1 接收相同事件，只將 DATA beta 改成 0.80。
+                TcpHarpCubicV21::NotifyHandover(
+                    current_node_id == 1584
+                        ? TcpHarpCubicV21::HandoverDirection::DATA_PATH
+                        : TcpHarpCubicV21::HandoverDirection::ACK_PATH);
+                // HARP-Cubic 3.0 在 V2 detector 上加入 recovery-entry flight cap。
+                TcpHarpCubicV3::NotifyHandover(
+                    current_node_id == 1584
+                        ? TcpHarpCubicV3::HandoverDirection::DATA_PATH
+                        : TcpHarpCubicV3::HandoverDirection::ACK_PATH);
+            }
+        }
       // Add to forwarding state
       m_arbiters.at(current_node_id)
           ->SetSingleForwardState(target_node_id, next_hop_node_id,

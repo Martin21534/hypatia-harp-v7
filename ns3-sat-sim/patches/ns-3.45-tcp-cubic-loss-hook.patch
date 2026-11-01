@@ -1,0 +1,65 @@
+diff --git a/src/internet/model/tcp-cubic.h b/src/internet/model/tcp-cubic.h
+index b34918c..d3c1ffc 100644
+--- a/src/internet/model/tcp-cubic.h
++++ b/src/internet/model/tcp-cubic.h
+@@ -92,6 +92,14 @@ class TcpCubic : public TcpCongestionOps
+     Ptr<TcpCongestionOps> Fork() override;
+     void Init(Ptr<TcpSocketState> tcb) override;
+
++  protected:
++    /**
++     * Select the multiplicative decrease factor for the current loss event.
++     * Subclasses may override this hook while retaining CUBIC recovery state.
++     */
++    virtual double GetLossReductionFactor(Ptr<const TcpSocketState> tcb,
++                                          uint32_t bytesInFlight);
++
+   private:
+     bool m_fastConvergence; //!< Enable or disable fast convergence algorithm
+     bool m_tcpFriendliness; //!< Enable or disable TCP-friendliness heuristic
+diff --git a/src/internet/model/tcp-cubic.cc b/src/internet/model/tcp-cubic.cc
+index 406fc14..d056cfe 100644
+--- a/src/internet/model/tcp-cubic.cc
++++ b/src/internet/model/tcp-cubic.cc
+@@ -451,6 +451,7 @@ TcpCubic::GetSsThresh(Ptr<const TcpSocketState> tcb, uint32_t bytesInFlight)
+ {
+     NS_LOG_FUNCTION(this << tcb << bytesInFlight);
+
++    const double reductionFactor = GetLossReductionFactor(tcb, bytesInFlight);
+     uint32_t segCwnd = tcb->GetCwndInSegments();
+     NS_LOG_DEBUG("Loss at cWnd=" << segCwnd
+                                  << " segments in flight=" << bytesInFlight / tcb->m_segmentSize);
+@@ -458,7 +459,8 @@ TcpCubic::GetSsThresh(Ptr<const TcpSocketState> tcb, uint32_t bytesInFlight)
+     /* Wmax and fast convergence */
+     if (segCwnd < m_lastMaxCwnd && m_fastConvergence)
+     {
+-        m_lastMaxCwnd = (segCwnd * (1 + m_beta)) / 2; // Section 4.6 in RFC 8312
++        m_lastMaxCwnd =
++            (segCwnd * (1 + reductionFactor)) / 2; // Section 4.6 in RFC 8312
+     }
+     else
+     {
+@@ -468,13 +470,22 @@ TcpCubic::GetSsThresh(Ptr<const TcpSocketState> tcb, uint32_t bytesInFlight)
+     m_epochStart = Time::Min(); // end of epoch
+
+     /* Formula taken from the Linux kernel */
+-    uint32_t ssThresh = std::max(static_cast<uint32_t>(segCwnd * m_beta), 2U) * tcb->m_segmentSize;
++    uint32_t ssThresh =
++        std::max(static_cast<uint32_t>(segCwnd * reductionFactor), 2U) * tcb->m_segmentSize;
+
+     NS_LOG_DEBUG("SsThresh = " << ssThresh);
+
+     return ssThresh;
+ }
+
++double
++TcpCubic::GetLossReductionFactor(Ptr<const TcpSocketState> tcb, uint32_t bytesInFlight)
++{
++    (void)tcb;
++    (void)bytesInFlight;
++    return m_beta;
++}
++
+ void
+ TcpCubic::CongestionStateSet(Ptr<TcpSocketState> tcb, const TcpSocketState::TcpCongState_t newState)
+ {

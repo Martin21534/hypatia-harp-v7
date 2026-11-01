@@ -3,3 +3,12 @@
 
 # Include specific files that should be tracked by Git
 !.gitignore
+!tcp-handover-cubic/
+!tcp-handover-cubic/**
+!satellite-network/
+!satellite-network/helper/
+!satellite-network/helper/gsl-random-loss-helper.cc
+!satellite-network/helper/gsl-random-loss-helper.h
+!satellite-network/model/
+!satellite-network/model/gsl-scheduled-error-model.cc
+!satellite-network/model/gsl-scheduled-error-model.h

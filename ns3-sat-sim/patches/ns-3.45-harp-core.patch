@@ -1,0 +1,512 @@
+diff --git a/src/internet/CMakeLists.txt b/src/internet/CMakeLists.txt
+index a105dcd..afbf80c 100644
+--- a/src/internet/CMakeLists.txt
++++ b/src/internet/CMakeLists.txt
+@@ -98,6 +98,7 @@ set(source_files
+     model/tcp-ledbat.cc
+     model/tcp-linux-reno.cc
+     model/tcp-lp.cc
++    model/tcp-option-harp.cc
+     model/tcp-option-rfc793.cc
+     model/tcp-option-sack-permitted.cc
+     model/tcp-option-sack.cc
+@@ -223,6 +224,7 @@ set(header_files
+     model/tcp-ledbat.h
+     model/tcp-linux-reno.h
+     model/tcp-lp.h
++    model/tcp-option-harp.h
+     model/tcp-option-rfc793.h
+     model/tcp-option-sack-permitted.h
+     model/tcp-option-sack.h
+diff --git a/src/internet/model/tcp-congestion-ops.h b/src/internet/model/tcp-congestion-ops.h
+index 388933a..351a4c9 100644
+--- a/src/internet/model/tcp-congestion-ops.h
++++ b/src/internet/model/tcp-congestion-ops.h
+@@ -13,6 +13,8 @@
+ namespace ns3
+ {
+
++class TcpHeader;
++
+ /**
+  * @ingroup tcp
+  * @defgroup congestionOps Congestion Control Algorithms.
+@@ -124,6 +126,34 @@ class TcpCongestionOps : public Object
+      */
+     virtual void PktsAcked(Ptr<TcpSocketState> tcb, uint32_t segmentsAcked, const Time& rtt);
+
++    /**
++     * Optional observation hook for congestion controls that inspect TCP ACK
++     * options.  The default implementation does nothing.
++     */
++    virtual void ObserveAck(const TcpHeader& tcpHeader [[maybe_unused]],
++                            uint32_t segmentSize [[maybe_unused]],
++                            uint32_t cwndSegments [[maybe_unused]])
++    {
++    }
++
++    /**
++     * Optional one-shot update of an already active Recovery target.
++     *
++     * This hook runs after ACK options have been observed and before the
++     * normal ACK/Recovery state machine.  The default implementation does
++     * nothing.  A congestion control may use it to revise ssthresh without
++     * bypassing the configured recovery algorithm (for example PRR).
++     *
++     * @param tcb internal congestion state
++     * @param [out] target updated recovery target in bytes
++     * @return true when target must replace the current ssthresh
++     */
++    virtual bool GetRecoveryTargetUpdate(Ptr<const TcpSocketState> tcb [[maybe_unused]],
++                                         uint32_t& target [[maybe_unused]])
++    {
++        return false;
++    }
++
+     /**
+      * @brief Trigger events/calculations specific to a congestion state
+      *
+diff --git a/src/internet/model/tcp-option-harp.cc b/src/internet/model/tcp-option-harp.cc
+new file mode 100644
+index 0000000..c12ec1d
+--- /dev/null
++++ b/src/internet/model/tcp-option-harp.cc
+@@ -0,0 +1,108 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-only
++ */
++
++#include "tcp-option-harp.h"
++
++#include "ns3/log.h"
++
++namespace ns3
++{
++
++NS_LOG_COMPONENT_DEFINE("TcpOptionHarp");
++NS_OBJECT_ENSURE_REGISTERED(TcpOptionHarp);
++
++TypeId
++TcpOptionHarp::GetTypeId()
++{
++    static TypeId tid = TypeId("ns3::TcpOptionHarp")
++                            .SetParent<TcpOption>()
++                            .SetGroupName("Internet")
++                            .AddConstructor<TcpOptionHarp>();
++    return tid;
++}
++
++TcpOptionHarp::TcpOptionHarp() = default;
++
++TcpOptionHarp::~TcpOptionHarp() = default;
++
++void
++TcpOptionHarp::Print(std::ostream& os) const
++{
++    os << "signal=" << static_cast<uint32_t>(m_signal) << ";epoch=" << m_epoch;
++}
++
++void
++TcpOptionHarp::Serialize(Buffer::Iterator start) const
++{
++    Buffer::Iterator i = start;
++    i.WriteU8(GetKind());
++    i.WriteU8(SERIALIZED_SIZE);
++    i.WriteHtonU16(EXPERIMENT_ID);
++    i.WriteU8(static_cast<uint8_t>(m_signal));
++    i.WriteU8(0);
++    i.WriteHtonU16(m_epoch);
++}
++
++uint32_t
++TcpOptionHarp::Deserialize(Buffer::Iterator start)
++{
++    Buffer::Iterator i = start;
++    if (i.ReadU8() != GetKind() || i.ReadU8() != SERIALIZED_SIZE ||
++        i.ReadNtohU16() != EXPERIMENT_ID)
++    {
++        NS_LOG_WARN("Malformed HARP experimental TCP option");
++        return 0;
++    }
++
++    const uint8_t signal = i.ReadU8();
++    i.ReadU8(); // Reserved for a later negotiated format version.
++    if (signal < static_cast<uint8_t>(Signal::DATA_MARK) ||
++        signal > static_cast<uint8_t>(Signal::ACK_MARK))
++    {
++        NS_LOG_WARN("Unknown HARP signal type " << static_cast<uint32_t>(signal));
++        return 0;
++    }
++
++    m_signal = static_cast<Signal>(signal);
++    m_epoch = i.ReadNtohU16();
++    return GetSerializedSize();
++}
++
++uint8_t
++TcpOptionHarp::GetKind() const
++{
++    return TcpOption::HARP;
++}
++
++uint32_t
++TcpOptionHarp::GetSerializedSize() const
++{
++    return SERIALIZED_SIZE;
++}
++
++void
++TcpOptionHarp::SetSignal(Signal signal)
++{
++    m_signal = signal;
++}
++
++TcpOptionHarp::Signal
++TcpOptionHarp::GetSignal() const
++{
++    return m_signal;
++}
++
++void
++TcpOptionHarp::SetEpoch(uint16_t epoch)
++{
++    m_epoch = epoch;
++}
++
++uint16_t
++TcpOptionHarp::GetEpoch() const
++{
++    return m_epoch;
++}
++
++} // namespace ns3
+diff --git a/src/internet/model/tcp-option-harp.h b/src/internet/model/tcp-option-harp.h
+new file mode 100644
+index 0000000..d8a857f
+--- /dev/null
++++ b/src/internet/model/tcp-option-harp.h
+@@ -0,0 +1,59 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-only
++ */
++
++#ifndef TCP_OPTION_HARP_H
++#define TCP_OPTION_HARP_H
++
++#include "tcp-option.h"
++
++#include <cstdint>
++
++namespace ns3
++{
++
++/**
++ * Experimental on-wire option used by HARP-Cubic V5.
++ *
++ * The eight serialized bytes are: Kind, Length, 16-bit experimental ID,
++ * signal type, reserved byte and 16-bit handover epoch.  Kind 253 and the
++ * experimental ID follow the RFC 6994 experimental-option format.
++ */
++class TcpOptionHarp : public TcpOption
++{
++  public:
++    enum class Signal : uint8_t
++    {
++        DATA_MARK = 1,
++        DATA_ECHO = 2,
++        ACK_MARK = 3
++    };
++
++    static TypeId GetTypeId();
++
++    TcpOptionHarp();
++    ~TcpOptionHarp() override;
++
++    void Print(std::ostream& os) const override;
++    void Serialize(Buffer::Iterator start) const override;
++    uint32_t Deserialize(Buffer::Iterator start) override;
++
++    uint8_t GetKind() const override;
++    uint32_t GetSerializedSize() const override;
++
++    void SetSignal(Signal signal);
++    Signal GetSignal() const;
++    void SetEpoch(uint16_t epoch);
++    uint16_t GetEpoch() const;
++
++  private:
++    static constexpr uint8_t SERIALIZED_SIZE = 8;
++    static constexpr uint16_t EXPERIMENT_ID = 0x4841; // "HA"
++
++    Signal m_signal{Signal::DATA_MARK};
++    uint16_t m_epoch{0};
++};
++
++} // namespace ns3
++
++#endif // TCP_OPTION_HARP_H
+diff --git a/src/internet/model/tcp-option.cc b/src/internet/model/tcp-option.cc
+index e2eac1e..db500b4 100644
+--- a/src/internet/model/tcp-option.cc
++++ b/src/internet/model/tcp-option.cc
+@@ -9,6 +9,7 @@
+ #include "tcp-option.h"
+
+ #include "tcp-option-rfc793.h"
++#include "tcp-option-harp.h"
+ #include "tcp-option-sack-permitted.h"
+ #include "tcp-option-sack.h"
+ #include "tcp-option-ts.h"
+@@ -59,6 +60,7 @@ TcpOption::CreateOption(uint8_t kind)
+         {TcpOption::WINSCALE, TcpOptionWinScale::GetTypeId()},
+         {TcpOption::SACKPERMITTED, TcpOptionSackPermitted::GetTypeId()},
+         {TcpOption::SACK, TcpOptionSack::GetTypeId()},
++        {TcpOption::HARP, TcpOptionHarp::GetTypeId()},
+         {TcpOption::UNKNOWN, TcpOptionUnknown::GetTypeId()},
+     };
+
+@@ -86,6 +88,7 @@ TcpOption::IsKindKnown(uint8_t kind)
+     case SACKPERMITTED:
+     case SACK:
+     case TS:
++    case HARP:
+         // Do not add UNKNOWN here
+         return true;
+     }
+diff --git a/src/internet/model/tcp-option.h b/src/internet/model/tcp-option.h
+index 5780abd..a626918 100644
+--- a/src/internet/model/tcp-option.h
++++ b/src/internet/model/tcp-option.h
+@@ -49,6 +49,7 @@ class TcpOption : public Object
+         SACKPERMITTED = 4, //!< SACKPERMITTED
+         SACK = 5,          //!< SACK
+         TS = 8,            //!< TS
++        HARP = 253,         //!< RFC 6994 experimental option used by HARP-Cubic V5
+         UNKNOWN = 255      //!< not a standardized value; for unknown recv'd options
+     };
+
+diff --git a/src/internet/model/tcp-socket-base.cc b/src/internet/model/tcp-socket-base.cc
+index c0464d5..604a5f1 100644
+--- a/src/internet/model/tcp-socket-base.cc
++++ b/src/internet/model/tcp-socket-base.cc
+@@ -27,6 +27,7 @@
+ #include "tcp-congestion-ops.h"
+ #include "tcp-header.h"
+ #include "tcp-l4-protocol.h"
++#include "tcp-option-harp.h"
+ #include "tcp-option-sack-permitted.h"
+ #include "tcp-option-sack.h"
+ #include "tcp-option-ts.h"
+@@ -139,6 +140,11 @@ TcpSocketBase::GetTypeId()
+                           BooleanValue(true),
+                           MakeBooleanAccessor(&TcpSocketBase::m_timestampEnabled),
+                           MakeBooleanChecker())
++            .AddAttribute("HarpV5EchoDuration",
++                          "Fixed time to echo a newly received HARP V5 MARK",
++                          TimeValue(MilliSeconds(250)),
++                          MakeTimeAccessor(&TcpSocketBase::m_harpEchoDuration),
++                          MakeTimeChecker())
+             .AddAttribute(
+                 "MinRto",
+                 "Minimum retransmit timeout value",
+@@ -393,6 +399,7 @@ TcpSocketBase::TcpSocketBase(const TcpSocketBase& sock)
+       m_sndWindShift(sock.m_sndWindShift),
+       m_timestampEnabled(sock.m_timestampEnabled),
+       m_timestampToEcho(sock.m_timestampToEcho),
++      m_harpEchoDuration(sock.m_harpEchoDuration),
+       m_recover(sock.m_recover),
+       m_recoverActive(sock.m_recoverActive),
+       m_retxThresh(sock.m_retxThresh),
+@@ -1350,6 +1357,10 @@ TcpSocketBase::DoForwardUp(Ptr<Packet> packet, const Address& fromAddress, const
+     packet->RemoveHeader(tcpHeader);
+     SequenceNumber32 seq = tcpHeader.GetSequenceNumber();
+
++    // V5 的換手訊號只從實際收到的封包解析，不接受 routing layer
++    // 直接呼叫 TCP。DATA_MARK 會使接收端在後續 ACK 中回傳 DATA_ECHO。
++    ProcessOptionHarp(tcpHeader);
++
+     if (m_state == ESTABLISHED && !(tcpHeader.GetFlags() & TcpHeader::RST))
+     {
+         // Check if the sender has responded to ECN echo by reducing the Congestion Window
+@@ -1711,7 +1722,6 @@ TcpSocketBase::EnterRecovery(uint32_t currentDelivered)
+     uint32_t bytesInFlight =
+         m_sackEnabled ? BytesInFlight() : BytesInFlight() + m_tcb->m_segmentSize;
+     m_tcb->m_ssThresh = m_congestionControl->GetSsThresh(m_tcb, bytesInFlight);
+-
+     if (!m_congestionControl->HasCongControl())
+     {
+         m_recoveryOps->EnterRecovery(m_tcb, m_dupAckCount, UnAckDataCount(), currentDelivered);
+@@ -1857,6 +1867,22 @@ TcpSocketBase::ReceivedAck(Ptr<Packet> packet, const TcpHeader& tcpHeader)
+     ReadOptions(tcpHeader, &bytesSacked);
+
+     SequenceNumber32 ackNumber = tcpHeader.GetAckNumber();
++    m_congestionControl->ObserveAck(tcpHeader,
++                                    m_tcb->m_segmentSize,
++                                    m_tcb->GetCwndInSegments());
++
++    // A late HARP ECHO may revise only the target of an already active
++    // Recovery.  Applying it here lets the existing PRR/ClassicRecovery code
++    // pace the change; no packet is injected and cwnd is not raised directly.
++    uint32_t updatedRecoveryTarget = 0;
++    if (m_congestionControl->GetRecoveryTargetUpdate(m_tcb, updatedRecoveryTarget))
++    {
++        NS_ASSERT_MSG(m_tcb->m_congState == TcpSocketState::CA_RECOVERY,
++                      "A Recovery target update is only valid during CA_RECOVERY");
++        NS_ASSERT_MSG(updatedRecoveryTarget >= 2 * m_tcb->m_segmentSize,
++                      "Recovery target must contain at least two segments");
++        m_tcb->m_ssThresh = updatedRecoveryTarget;
++    }
+     SequenceNumber32 oldHeadSequence = m_txBuffer->HeadSequence();
+
+     if (ackNumber < oldHeadSequence)
+@@ -1961,10 +1987,10 @@ TcpSocketBase::ReceivedAck(Ptr<Packet> packet, const TcpHeader& tcpHeader)
+ }
+
+ void
+-TcpSocketBase::ProcessAck(const SequenceNumber32& ackNumber,
+-                          bool scoreboardUpdated,
++TcpSocketBase::ProcessAck(const SequenceNumber32& ackNumber,            //這次 ACK 說「我下一個想收到哪個 byte」
++                          bool scoreboardUpdated,                       //這個 ACK 裡的 SACK 資訊,有沒有告訴 sender「新的資料其實已經到了」
+                           uint32_t currentDelivered,
+-                          const SequenceNumber32& oldHeadSequence,
++                          const SequenceNumber32& oldHeadSequence,      //這個 ACK 到來以前，sender 認為最前面尚未確認的位置
+                           bool receivedData)
+ {
+     NS_LOG_FUNCTION(this << ackNumber << scoreboardUpdated << currentDelivered << oldHeadSequence);
+@@ -3620,7 +3646,11 @@ TcpSocketBase::ReceivedData(Ptr<Packet> p, const TcpHeader& tcpHeader)
+
+     // Put into Rx buffer
+     SequenceNumber32 expectedSeq = m_tcb->m_rxBuffer->NextRxSequence();
+-    if (!m_tcb->m_rxBuffer->Add(p, tcpHeader))
++    const bool accepted = m_tcb->m_rxBuffer->Add(p, tcpHeader);
++    const bool harpImmediateAck = m_harpForceImmediateAck;
++    m_harpForceImmediateAck = false;
++
++    if (!accepted)
+     { // Insert failed: No data or RX buffer full
+         if (m_tcb->m_ecnState == TcpSocketState::ECN_CE_RCVD ||
+             m_tcb->m_ecnState == TcpSocketState::ECN_SENDING_ECE)
+@@ -3656,7 +3686,8 @@ TcpSocketBase::ReceivedData(Ptr<Packet> p, const TcpHeader& tcpHeader)
+         }
+     }
+     // Now send a new ACK packet acknowledging all received and delivered data
+-    if (m_tcb->m_rxBuffer->Size() > m_tcb->m_rxBuffer->Available() ||
++    if (harpImmediateAck ||
++        m_tcb->m_rxBuffer->Size() > m_tcb->m_rxBuffer->Available() ||
+         m_tcb->m_rxBuffer->NextRxSequence() > expectedSeq + p->GetSize())
+     { // A gap exists in the buffer, or we filled a gap: Always ACK
+         m_congestionControl->CwndEvent(m_tcb, TcpSocketState::CA_EVENT_NON_DELAYED_ACK);
+@@ -4323,6 +4354,69 @@ TcpSocketBase::AddOptions(TcpHeader& header)
+     {
+         AddOptionTimestamp(header);
+     }
++
++    AddOptionHarp(header);
++}
++
++void
++TcpSocketBase::ProcessOptionHarp(const TcpHeader& header)
++{
++    for (const auto& option : header.GetOptionList())
++    {
++        if (option->GetKind() != TcpOption::HARP)
++        {
++            continue;
++        }
++
++        const auto harp = DynamicCast<const TcpOptionHarp>(option);
++        if (!harp || harp->GetSignal() != TcpOptionHarp::Signal::DATA_MARK)
++        {
++            continue;
++        }
++
++        const bool newEpoch = !m_harpEchoEpochValid || harp->GetEpoch() != m_harpEchoEpoch;
++        if (newEpoch)
++        {
++            m_harpEchoEpochValid = true;
++            m_harpEchoPending = true;
++            m_harpEchoEpoch = harp->GetEpoch();
++            m_harpEchoUntilNs =
++                Simulator::Now().GetNanoSeconds() + m_harpEchoDuration.GetNanoSeconds();
++            m_harpForceImmediateAck = true;
++
++            NS_LOG_INFO("HarpV5Signal"
++                        << " event=MARK_RX"
++                        << " time_ns=" << Simulator::Now().GetNanoSeconds()
++                        << " epoch=" << m_harpEchoEpoch);
++        }
++    }
++}
++
++void
++TcpSocketBase::AddOptionHarp(TcpHeader& header)
++{
++    if (!m_harpEchoPending || !(header.GetFlags() & TcpHeader::ACK))
++    {
++        return;
++    }
++
++    const int64_t nowNs = Simulator::Now().GetNanoSeconds();
++    if (nowNs > m_harpEchoUntilNs)
++    {
++        m_harpEchoPending = false;
++        return;
++    }
++
++    Ptr<TcpOptionHarp> option = CreateObject<TcpOptionHarp>();
++    option->SetSignal(TcpOptionHarp::Signal::DATA_ECHO);
++    option->SetEpoch(m_harpEchoEpoch);
++    if (header.AppendOption(option))
++    {
++        NS_LOG_INFO("HarpV5Signal"
++                    << " event=ECHO_TX"
++                    << " time_ns=" << nowNs
++                    << " epoch=" << m_harpEchoEpoch);
++    }
+ }
+
+ void
+diff --git a/src/internet/model/tcp-socket-base.h b/src/internet/model/tcp-socket-base.h
+index 7d6b6c3..8aff8ea 100644
+--- a/src/internet/model/tcp-socket-base.h
++++ b/src/internet/model/tcp-socket-base.h
+@@ -1188,6 +1188,12 @@ class TcpSocketBase : public TcpSocket
+      */
+     void AddOptions(TcpHeader& tcpHeader);
+
++    /** Process an on-wire HARP MARK before the normal TCP state machine. */
++    void ProcessOptionHarp(const TcpHeader& tcpHeader);
++
++    /** Echo the most recently received HARP epoch on outgoing ACKs. */
++    void AddOptionHarp(TcpHeader& tcpHeader);
++
+     /**
+      * @brief Read TCP options before Ack processing
+      *
+@@ -1345,8 +1351,8 @@ class TcpSocketBase : public TcpSocket
+     EventId m_timewaitEvent{}; //!< TIME_WAIT expiration event: Move this socket to CLOSED state
+
+     // ACK management
+-    uint32_t m_dupAckCount{0};    //!< Dupack counter
+-    uint32_t m_delAckCount{0};    //!< Delayed ACK counter
++    uint32_t m_dupAckCount{0};             //!< Dupack counter
++    uint32_t m_delAckCount{0};             //!< Delayed ACK counter
+     uint32_t m_delAckMaxCount{0}; //!< Number of packet to fire an ACK before delay timeout
+
+     // Nagle algorithm
+@@ -1413,6 +1419,15 @@ class TcpSocketBase : public TcpSocket
+     bool m_timestampEnabled{true};  //!< Timestamp option enabled
+     uint32_t m_timestampToEcho{0};  //!< Timestamp to echo
+
++    // HARP V5 receiver-side echo state.  This is populated only by a MARK
++    // serialized in an incoming packet; there is no routing-to-TCP callback.
++    Time m_harpEchoDuration{MilliSeconds(250)};
++    bool m_harpEchoEpochValid{false};
++    bool m_harpEchoPending{false};
++    bool m_harpForceImmediateAck{false};
++    uint16_t m_harpEchoEpoch{0};
++    int64_t m_harpEchoUntilNs{-1};
++
+     EventId m_sendPendingDataEvent{}; //!< micro-delay event to send pending data
+
+     // Fast Retransmit and Recovery

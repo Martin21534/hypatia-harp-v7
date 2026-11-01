@@ -1,0 +1,42 @@
+diff --git a/src/internet/model/tcp-congestion-ops.h b/src/internet/model/tcp-congestion-ops.h
+--- a/src/internet/model/tcp-congestion-ops.h
++++ b/src/internet/model/tcp-congestion-ops.h
+@@ -12,6 +12,8 @@
+ namespace ns3
+ {
+
++class TcpHeader;
++
+ /**
+  * @ingroup tcp
+  * @defgroup congestionOps Congestion Control Algorithms.
+@@ -125,6 +127,16 @@ class TcpCongestionOps : public Object
+      */
+     virtual void PktsAcked(Ptr<TcpSocketState> tcb, uint32_t segmentsAcked, const Time& rtt);
+
++    /**
++     * Optional observation hook for congestion controls that inspect TCP ACK
++     * options.  The default implementation does nothing.
++     */
++    virtual void ObserveAck(const TcpHeader& tcpHeader [[maybe_unused]],
++                            uint32_t segmentSize [[maybe_unused]],
++                            uint32_t cwndSegments [[maybe_unused]])
++    {
++    }
++
+     /**
+      * @brief Trigger events/calculations specific to a congestion state
+      *
+diff --git a/src/internet/model/tcp-socket-base.cc b/src/internet/model/tcp-socket-base.cc
+--- a/src/internet/model/tcp-socket-base.cc
++++ b/src/internet/model/tcp-socket-base.cc
+@@ -1855,6 +1855,9 @@ TcpSocketBase::ReceivedAck(Ptr<Packet> packet, const TcpHeader& tcpHeader)
+     ReadOptions(tcpHeader, &bytesSacked);
+
+     SequenceNumber32 ackNumber = tcpHeader.GetAckNumber();
++    m_congestionControl->ObserveAck(tcpHeader,
++                                    m_tcb->m_segmentSize,
++                                    m_tcb->GetCwndInSegments());
+     SequenceNumber32 oldHeadSequence = m_txBuffer->HeadSequence();
+
+     if (ackNumber < oldHeadSequence)

@@ -39,6 +39,8 @@
 #include "ns3/arbiter-single-forward-helper.h"
 #include "ns3/ipv4-arbiter-routing-helper.h"
 #include "ns3/gsl-if-bandwidth-helper.h"
+#include "ns3/gsl-random-loss-helper.h"
+#include "ns3/tcp-hybrid-cubic.h"
 
 using namespace ns3;
 
@@ -61,16 +63,29 @@ int main(int argc, char *argv[]) {
     // Load basic simulation environment
     Ptr<BasicSimulation> basicSimulation = CreateObject<BasicSimulation>(run_dir);
 
+    // Keep the integrated ML-CUBIC implementation linked and register its
+    // TypeIds before the congestion-control type is selected by name below.
+    (void) TcpMlCubic::GetTypeId();
+
     // Setting socket type
     Config::SetDefault ("ns3::TcpL4Protocol::SocketType", StringValue ("ns3::" + basicSimulation->GetConfigParamOrFail("tcp_socket_type")));
 
     // Optimize TCP
     TcpOptimizer::OptimizeBasic(basicSimulation);
 
+    // Setting initial slow start threshold, if configured
+    std::string tcp_initial_slow_start_threshold_byte_str = basicSimulation->GetConfigParamOrDefault("tcp_initial_slow_start_threshold_byte", "");
+    if (tcp_initial_slow_start_threshold_byte_str != "") {
+        uint32_t tcp_initial_slow_start_threshold_byte = parse_positive_int64(tcp_initial_slow_start_threshold_byte_str);
+        printf("  > Initial SSTHRESH.......... %u byte\n", tcp_initial_slow_start_threshold_byte);
+        Config::SetDefault("ns3::TcpSocket::InitialSlowStartThreshold", UintegerValue(tcp_initial_slow_start_threshold_byte));
+    }
+
     // Read topology, and install routing arbiters
     Ptr<TopologySatelliteNetwork> topology = CreateObject<TopologySatelliteNetwork>(basicSimulation, Ipv4ArbiterRoutingHelper());
     ArbiterSingleForwardHelper arbiterHelper(basicSimulation, topology->GetNodes());
     GslIfBandwidthHelper gslIfBandwidthHelper(basicSimulation, topology->GetNodes());
+    GslRandomLossHelper gslRandomLossHelper(basicSimulation, topology);
 
     // Schedule flows
     TcpFlowScheduler tcpFlowScheduler(basicSimulation, topology); // Requires enable_tcp_flow_scheduler=true

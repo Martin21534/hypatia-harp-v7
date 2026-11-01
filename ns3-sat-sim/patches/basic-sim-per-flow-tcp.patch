@@ -1,0 +1,91 @@
+diff --git a/model/apps/tcp-flow-send-application.cc b/model/apps/tcp-flow-send-application.cc
+index 703e0b5..38adc61 100644
+--- a/model/apps/tcp-flow-send-application.cc
++++ b/model/apps/tcp-flow-send-application.cc
+@@ -34,12 +34,36 @@
+ #include "ns3/tcp-socket-factory.h"
+ #include "ns3/tcp-socket-base.h"
+ #include "ns3/tcp-tx-buffer.h"
++#include "ns3/tcp-l4-protocol.h"
++#include "ns3/tcp-congestion-ops.h"
+ #include "ns3/exp-util.h"
+ #include "tcp-flow-send-application.h"
+ #include <fstream>
++#include <stdexcept>
+
+ namespace ns3 {
+
++namespace {
++
++// The schedule's additional_parameters column is optional.  Keep all existing
++// schedules unchanged unless they explicitly request a congestion-control type.
++std::string
++GetPerFlowTcpSocketType(const std::string& additionalParameters)
++{
++    const std::string key = "tcp_socket_type=";
++    const std::size_t start = additionalParameters.find(key);
++    if (start == std::string::npos)
++    {
++        return "";
++    }
++
++    const std::size_t valueStart = start + key.size();
++    const std::size_t valueEnd = additionalParameters.find(';', valueStart);
++    return additionalParameters.substr(valueStart, valueEnd - valueStart);
++}
++
++} // namespace
++
+ NS_LOG_COMPONENT_DEFINE ("TcpFlowSendApplication");
+
+ NS_OBJECT_ENSURE_REGISTERED (TcpFlowSendApplication);
+@@ -129,7 +153,36 @@ void TcpFlowSendApplication::StartApplication(void) { // Called at time specifie
+
+     // Create the socket if not already
+     if (!m_socket) {
+-        m_socket = Socket::CreateSocket(GetNode(), m_tid);
++        const std::string requestedType = GetPerFlowTcpSocketType(m_additionalParameters);
++        if (requestedType.empty())
++        {
++            // Backward-compatible path: use the node-wide SocketType exactly as before.
++            m_socket = Socket::CreateSocket(GetNode(), m_tid);
++        }
++        else
++        {
++            const std::string typeName = requestedType.rfind("ns3::", 0) == 0
++                                             ? requestedType
++                                             : "ns3::" + requestedType;
++            TypeId congestionType;
++            if (!TypeId::LookupByNameFailSafe(typeName, &congestionType) ||
++                !congestionType.IsChildOf(TcpCongestionOps::GetTypeId()))
++            {
++                throw std::invalid_argument("Invalid tcp_socket_type for TCP flow " +
++                                            std::to_string(m_tcpFlowId) + ": " + requestedType);
++            }
++
++            Ptr<TcpL4Protocol> tcp = GetNode()->GetObject<TcpL4Protocol>();
++            if (tcp == nullptr)
++            {
++                NS_FATAL_ERROR("TcpFlowSendApplication could not find TcpL4Protocol");
++            }
++            // CreateSocket(TypeId) keeps the node's configured recovery algorithm
++            // (PRR in the competition experiment) while selecting CC per flow.
++            m_socket = tcp->CreateSocket(congestionType);
++            NS_LOG_INFO("TCP_FLOW_SOCKET flow_id=" << m_tcpFlowId
++                                                     << " congestion_control=" << typeName);
++        }
+
+         // Must be TCP basically
+         if (m_socket->GetSocketType() != Socket::NS3_SOCK_STREAM &&
+diff --git a/model/apps/tcp-flow-send-application.h b/model/apps/tcp-flow-send-application.h
+index 1dd61ed..e6ba8df 100644
+--- a/model/apps/tcp-flow-send-application.h
++++ b/model/apps/tcp-flow-send-application.h
+@@ -77,7 +77,7 @@ private:
+   bool            m_closedByError;    //!< Whether the connection closed by error
+   uint64_t        m_ackedBytes;       //!< Amount of acknowledged bytes cached after close of the socket
+   bool            m_isCompleted;      //!< True iff the flow is completed fully AND closed normally
+-  std::string     m_additionalParameters; //!< Not used in this version of the application
++  std::string     m_additionalParameters; //!< Optional per-flow parameters (e.g. tcp_socket_type=TcpCubic)
+   uint32_t        m_current_cwnd_byte;     //!< Current congestion window (detailed logging)
+   int64_t         m_current_rtt_ns;        //!< Current last RTT sample (detailed logging)
